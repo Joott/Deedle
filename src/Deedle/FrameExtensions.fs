@@ -652,7 +652,161 @@ module ``F# Frame extensions`` =
     static member ofJaggedArray (jArray:'T[][]) =
       Frame.FromJaggedArray(jArray)
 
+    /// Builds a new data frame whose columns are the results of applying the specified
+    /// function on the specified column of the input data frame. The function is applied to the values of the column data.
+    ///
+    /// ## Parameters
+    ///  - `columnName` - Name of the column to be transformed
+    ///  - `frame` - Input data frame to be transformed
+    ///  - `func` - Function that defines the column value mapping
+    ///
+    /// [category:Frame transformations]
+    static member mapCol (columnName: 'C) (func: 'T -> 'A) (frame: Frame<'R,'C>) =
+      frame
+      |> Frame.mapCols (fun ck series ->
+        match ck with
+        | name when name = columnName ->
+          series.Select(fun (KeyValue(k,v)) ->
+            v
+            |> unbox
+            |> func
+            |> box
+          )
+        | _ -> series
+      )
+
+    /// Builds a new data frame whose columns are the results of applying the specified
+    /// function on the specified column of the input data frame. The function is applied to the values of the column data.
+    /// The column name is replaced by the new given column name.
+    ///
+    /// ## Parameters
+    ///  - `columnName` - Name of the column to be transformed
+    ///  - `newColumnName` - Name of the new column
+    ///  - `frame` - Input data frame to be transformed
+    ///  - `func` - Function that defines the column value mapping
+    ///
+    /// [category:Frame transformations]
+    static member mapColNewName (columnName: 'C) (newColumnName: 'C) (func: 'T -> 'A) (frame: Frame<'R,'C>) =
+      let transformedFrame =
+        frame
+        |> Frame.mapCols (fun ck series ->
+          match ck with
+          | name when name = columnName ->
+            series.Select(fun (KeyValue(k,v)) ->
+              v
+              |> unbox
+              |> func
+              |> box
+            )
+          | _ -> series
+        )
+      transformedFrame
+      |> fun f -> f.RenameColumn(columnName, newColumnName)
+      transformedFrame
+
+    /// Generate descriptive statistics.
+
+    /// Descriptive statistics include those that summarize the central tendency,
+    /// dispersion and shape of a dataset’s distribution, excluding NaN values.
+    /// This only takes numerical columns into account.
+    ///
+    /// ## Parameters
+    ///  - `frame` - Input data frame to be transformed
+    ///
+    /// [category:Frame transformations]
+    static member describe (frame: Frame<'R,'C>) =
+      frame
+      |> Frame.getNumericCols
+      |> Series.map (fun ck os ->
+          let quantiles =
+              Stats.quantile ([|0.25; 0.5; 0.75|], os)
+              |> Series.values
+          [
+              "Count",[ck, os |> Stats.count |> float] |> Series.ofObservations
+              "Mean",[ck, os |> Stats.mean] |> Series.ofObservations
+              "StDev",[ck, os |> Stats.stdDev] |> Series.ofObservations
+              "Min", [ck, os |> Stats.min] |> Series.ofObservations
+              "25%", [ck, quantiles |> Seq.item 0] |> Series.ofObservations
+              "50%", [ck, quantiles |> Seq.item 1] |> Series.ofObservations
+              "75%", [ck, quantiles |> Seq.item 2] |> Series.ofObservations
+              "Max", [ck, os |> Stats.max] |> Series.ofObservations
+          ]
+          |> Frame.ofRows
+      )
+      |> Series.values
+      |> Frame.mergeAll
+      |> Frame.transpose
+
+    /// Save data frame to a CSV file or a `TextWriter`. When calling the operation,
+    /// you can specify whether you want to save the row keys or not (and headers for the keys)
+    /// and you can also specify the separator (use `\t` for writing TSV files). When specifying
+    /// file name ending with `.tsv`, the `\t` separator is used automatically.
+    ///
+    /// ## Parameters
+    ///  - `path` - Specifies the output file name where the CSV data should be written
+    ///  - `includeRowKeys` - When set to `true`, the row key is also written to the output file
+    ///  - `keyNames` - Can be used to specify the CSV headers for row key (or keys, for multi-level index)
+    ///  - `separator` - Specify the column separator in the file (the default is `\t` for
+    ///    TSV files and `,` for CSV files)
+    ///  - `culture` - Specify the `CultureInfo` object used for formatting numerical data
+    ///
+    /// [category:Input and output]
+    static member saveCsv (path:string, frame, ?includeRowKeys, ?keyNames, ?separator, ?culture) =
+      use writer = new StreamWriter(path)
+      FrameUtils.writeCsv writer (Some path) separator culture includeRowKeys keyNames frame
+
   type Frame<'TRowKey, 'TColumnKey when 'TRowKey : equality and 'TColumnKey : equality> with
+
+    /// Builds a new data frame whose columns are the results of applying the specified
+    /// function on the specified column of the input data frame. The function is applied to the values of the column data.
+    ///
+    /// ## Parameters
+    ///  - `columnName` - Name of the column to be transformed
+    ///  - `func` - Function that defines the column value mapping
+    ///
+    /// [category:Frame transformations]
+    member frame.MapCol (columnName: 'TColumnKey, func: 'T -> 'A) =
+      frame
+      |> Frame.mapCols (fun ck series ->
+        match ck with
+        | name when name = columnName ->
+          series.Select(fun (KeyValue(k,v)) ->
+            v
+            |> unbox
+            |> func
+            |> box
+          )
+        | _ -> series
+      )
+
+    /// Builds a new data frame whose columns are the results of applying the specified
+    /// function on the specified column of the input data frame. The function is applied to the values of the column data.
+    /// The column name is replaced by the new given column name.
+    ///
+    /// ## Parameters
+    ///  - `columnName` - Name of the column to be transformed
+    ///  - `newColumnName` - Name of the new column
+    ///  - `frame` - Input data frame to be transformed
+    ///  - `func` - Function that defines the column value mapping
+    ///
+    /// [category:Frame transformations]
+    member frame.mapColNewName (columnName: 'TColumnKey, newColumnName: 'TColumnKey, func: 'T -> 'A) =
+      let transformedFrame =
+        frame
+        |> Frame.mapCols (fun ck series ->
+          match ck with
+          | name when name = columnName ->
+            series.Select(fun (KeyValue(k,v)) ->
+              v
+              |> unbox
+              |> func
+              |> box
+            )
+          | _ -> series
+        )
+      transformedFrame
+      |> fun f -> f.RenameColumn(columnName, newColumnName)
+      transformedFrame
     /// Creates a new data frame resulting from a 'pivot' operation. Consider a denormalized data
     /// frame representing a table: column labels are field names & table values are observations
     /// of those fields. pivotTable buckets the rows along two axes, according to the values of
